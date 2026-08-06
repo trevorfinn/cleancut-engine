@@ -213,12 +213,18 @@ def detect(audio_path: Path, tier: int = 1):
         fl, sp = flag_words(words, singles, phrases)
         all_flagged.extend(fl)
         all_spans.extend(sp)
-    # dedupe the flagged list (for the review screen) by time + word
-    seen, flagged = set(), []
+    # Dedupe model passes that timestamp the same word slightly differently.
+    # A 0.75 s window removes duplicate detections without merging genuinely
+    # repeated profanity several seconds apart.
+    flagged = []
     for f in sorted(all_flagged, key=lambda x: x["start"]):
-        k = (round(f["start"], 1), f["word"].strip().lower())
-        if k not in seen:
-            seen.add(k)
+        word = normalize(f["word"])
+        duplicate = any(
+            normalize(prior["word"]) == word
+            and abs(prior["start"] - f["start"]) <= 0.75
+            for prior in flagged
+        )
+        if not duplicate:
             flagged.append(f)
     return flagged, merge_spans(all_spans)
 
