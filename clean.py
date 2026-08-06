@@ -63,7 +63,8 @@ def transcribe(audio_path: Path):
     return words
 
 
-def transcribe_groq(audio_path: Path, key: str):
+def transcribe_groq(audio_path: Path, key: str,
+                    model: str = "whisper-large-v3"):
     """Call Groq's Whisper endpoint for word-level timestamps. Uses only the
     stdlib so the deployed container stays tiny."""
     import urllib.request
@@ -71,12 +72,11 @@ def transcribe_groq(audio_path: Path, key: str):
 
     # Whisper tends to "clean up" profanity out of its transcript; this prompt
     # biases it to transcribe swear words verbatim so they can be censored.
-    prime = ("Transcribe every word verbatim, including repeated profanity in "
-             "speech, music, or rap. Do not censor or omit swear words like "
-             "fuck, fucking, shit, ass, damn, or bitch.")
+    prime = ("Uncensored English speech, music, and rap. Vocabulary may include: "
+             "fuck, fucking, shit, ass, damn, bitch. Preserve repeated words.")
     boundary = "----cleancutboundary"
     parts = []
-    for name, value in (("model", "whisper-large-v3"),
+    for name, value in (("model", model),
                         ("language", "en"),
                         ("response_format", "verbose_json"),
                         ("prompt", prime),
@@ -117,11 +117,12 @@ def transcribe_groq(audio_path: Path, key: str):
 
 def transcribe_groq_chunked(audio_path: Path, key: str,
                             chunk_seconds: float = 6.0,
-                            overlap: float = 2.0):
+                            overlap: float = 2.0,
+                            model: str = "whisper-large-v3-turbo"):
     """Transcribe overlapping short sections to improve speech in music."""
     total = _duration(audio_path)
     if total <= chunk_seconds:
-        return transcribe_groq(audio_path, key)
+        return transcribe_groq(audio_path, key, model=model)
 
     words = []
     start = 0.0
@@ -135,7 +136,7 @@ def transcribe_groq_chunked(audio_path: Path, key: str,
             run(["ffmpeg", "-y", "-ss", f"{start:.3f}",
                  "-i", str(audio_path), "-t", f"{length:.3f}",
                  "-ac", "1", "-ar", "16000", str(chunk)])
-            for word in transcribe_groq(chunk, key):
+            for word in transcribe_groq(chunk, key, model=model):
                 words.append({**word,
                               "start": word["start"] + start,
                               "end": word["end"] + start})
@@ -197,8 +198,14 @@ def detect(audio_path: Path, tier: int = 1):
     all_flagged, all_spans = [], []
     key = os.environ.get("GROQ_API_KEY")
     if key:
-        word_passes = [transcribe_groq(audio_path, key),
-                       transcribe_groq_chunked(audio_path, key)]
+        # Use two independently tuned Whisper variants: full-context Large V3
+        # plus short overlapping Turbo chunks. Their different errors make the
+        # union substantially more reliable for repeated words over music.
+        word_passes = [
+            transcribe_groq(audio_path, key, model="whisper-large-v3"),
+            transcribe_groq_chunked(
+                audio_path, key, model="whisper-large-v3-turbo"),
+        ]
     else:
         word_passes = [transcribe(audio_path)]
     for words in word_passes:
