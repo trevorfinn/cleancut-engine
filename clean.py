@@ -17,6 +17,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 HERE = Path(__file__).parent
@@ -89,19 +90,61 @@ def transcribe_groq(audio_path: Path, key: str):
     parts.append(f"--{boundary}--\r\n".encode())
     body = b"".join(parts)
 
-    req = urllib.request.Request(
-        "https://api.groq.com/openai/v1/audio/transcriptions", data=body,
-        headers={"Authorization": f"Bearer {key}",
-                 "User-Agent": "curl/8.0",
-                 "Content-Type": f"multipart/form-data; boundary={boundary}"})
-    try:
-        with urllib.request.urlopen(req, timeout=180) as r:
-            resp = json.loads(r.read())
-    except urllib.error.HTTPError as e:
-        raise RuntimeError(f"Groq transcription failed: HTTP {e.code} "
-                           f"{e.read().decode()[:200]}")
+    retryable = {429, 500, 502, 503, 504}
+    for attempt in range(3):
+        req = urllib.request.Request(
+            "https://api.groq.com/openai/v1/audio/transcriptions", data=body,
+            headers={"Authorization": f"Bearer {key}",
+                     "User-Agent": "curl/8.0",
+                     "Content-Type": f"multipart/form-data; boundary={boundary}"})
+        try:
+            with urllib.request.urlopen(req, timeout=180) as r:
+                resp = json.loads(r.read())
+            break
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode()[:200]
+            if e.code not in retryable or attempt == 2:
+                raise RuntimeError(
+                    f"Groq transcription failed: HTTP {e.code} {detail}")
+        except urllib.error.URLError as e:
+            if attempt == 2:
+                raise RuntimeError(f"Groq transcription failed: {e.reason}")
+        time.sleep(2 ** attempt)
     return [{"word": w["word"], "start": w["start"], "end": w["end"]}
             for w in (resp.get("words") or [])]
+
+
+def transcribe_groq_chunked(audio_path: Path, key: str,
+                            chunk_seconds: float = 15.0,
+                            overlap: float = 3.0):
+    """Transcribe overlapping short sections to improve speech in music."""
+    total = _duration(audio_path)
+    if total <= chunk_seconds:
+        return transcribe_groq(audio_path, key)
+
+    words = []
+    start = 0.0
+    index = 0
+    step = chunk_seconds - overlap
+    while start < total:
+        length = min(chunk_seconds, total - start)
+        chunk = audio_path.with_name(
+            f"{audio_path.stem}.chunk-{index}.wav")
+        try:
+            run(["ffmpeg", "-y", "-ss", f"{start:.3f}",
+                 "-i", str(audio_path), "-t", f"{length:.3f}",
+                 "-ac", "1", "-ar", "16000", str(chunk)])
+            for word in transcribe_groq(chunk, key):
+                words.append({**word,
+                              "start": word["start"] + start,
+                              "end": word["end"] + start})
+        finally:
+            chunk.unlink(missing_ok=True)
+        if start + length >= total:
+            break
+        start += step
+        index += 1
+    return words
 
 def flag_words(words, singles, phrases):
     flagged = []
@@ -143,15 +186,21 @@ def merge_spans(spans):
 
 
 def detect(audio_path: Path, tier: int = 1):
-    """Transcribe and flag foul language. On the Groq path this runs a
-    double-check pass (two transcriptions) and takes the union of what each
-    catches - AI transcription randomly drops a swear on any single pass, so a
-    second pass closes most of those gaps. Returns (flagged, spans)."""
+    """Transcribe and flag foul language.
+
+    The Groq path unions one full-file pass with an overlapping chunked pass.
+    Short chunks improve recognition when music masks individual lyrics.
+    Returns (flagged, spans).
+    """
     singles, phrases = load_wordlist(tier)
-    passes = 2 if os.environ.get("GROQ_API_KEY") else 1
     all_flagged, all_spans = [], []
-    for _ in range(passes):
-        words = transcribe(audio_path)
+    key = os.environ.get("GROQ_API_KEY")
+    if key:
+        word_passes = [transcribe_groq(audio_path, key),
+                       transcribe_groq_chunked(audio_path, key)]
+    else:
+        word_passes = [transcribe(audio_path)]
+    for words in word_passes:
         fl, sp = flag_words(words, singles, phrases)
         all_flagged.extend(fl)
         all_spans.extend(sp)
