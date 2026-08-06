@@ -71,12 +71,13 @@ def transcribe_groq(audio_path: Path, key: str):
 
     # Whisper tends to "clean up" profanity out of its transcript; this prompt
     # biases it to transcribe swear words verbatim so they can be censored.
-    prime = ("Transcribe explicit content verbatim, including profanity and "
-             "swear words like fuck, fucking, shit, ass, damn, bitch. Do not "
-             "censor or omit any words.")
+    prime = ("Transcribe every word verbatim, including repeated profanity in "
+             "speech, music, or rap. Do not censor or omit swear words like "
+             "fuck, fucking, shit, ass, damn, or bitch.")
     boundary = "----cleancutboundary"
     parts = []
     for name, value in (("model", "whisper-large-v3"),
+                        ("language", "en"),
                         ("response_format", "verbose_json"),
                         ("prompt", prime),
                         ("timestamp_granularities[]", "word")):
@@ -115,8 +116,8 @@ def transcribe_groq(audio_path: Path, key: str):
 
 
 def transcribe_groq_chunked(audio_path: Path, key: str,
-                            chunk_seconds: float = 15.0,
-                            overlap: float = 3.0):
+                            chunk_seconds: float = 6.0,
+                            overlap: float = 2.0):
     """Transcribe overlapping short sections to improve speech in music."""
     total = _duration(audio_path)
     if total <= chunk_seconds:
