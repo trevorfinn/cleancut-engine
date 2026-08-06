@@ -46,7 +46,7 @@ def fetch_url(url: str, jdir: Path) -> Path:
     if m:
         url = f"https://drive.google.com/uc?export=download&id={m.group(1)}"
     r = subprocess.run(
-        ["yt-dlp", "--no-playlist", "-f", "mp4/best", "--max-filesize", "500M",
+        ["yt-dlp", "--no-playlist", "-f", "bv*+ba/b", "--merge-output-format", "mp4", "--max-filesize", "500M",
          "-o", str(jdir / "input.%(ext)s"), url],
         capture_output=True, text=True, timeout=600)
     files = [p for p in jdir.iterdir() if p.stem == "input"]
