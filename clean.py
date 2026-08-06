@@ -175,16 +175,13 @@ def has_video(path: Path) -> bool:
                         str(path)], capture_output=True, text=True)
     return "video" in r.stdout
 
-# VP9 (Instagram, some YouTube) cannot be muxed into MP4 with -c:v copy, so
-# re-encode to H.264 when the source video codec is not MP4-safe.
-def video_args(p): return ["-c:v", "copy"] if subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name", "-of", "csv=p=0", str(p)], capture_output=True, text=True).stdout.strip().lower() in ("h264", "hevc", "mpeg4") else ["-c:v", "libx264", "-crf", "23", "-preset", "veryfast", "-pix_fmt", "yuv420p"]
 def enable_expr(spans):
     return "+".join(f"between(t,{s:.3f},{e:.3f})" for s, e in spans)
 
 def render(inp: Path, out: Path, spans, mode: str, video: bool):
     if not spans:
         print("No foul language found - copying input to output.")
-        run(["ffmpeg", "-y", "-i", str(inp)] + (video_args(inp) + ["-c:a", "copy"] if video else ["-c", "copy"]) + [str(out)])
+        run(["ffmpeg", "-y", "-i", str(inp), "-c", "copy", str(out)])
         return
     if mode in ("beep", "silence"):
         expr = enable_expr(spans)
@@ -198,7 +195,7 @@ def render(inp: Path, out: Path, spans, mode: str, video: bool):
         cmd = ["ffmpeg", "-y", "-i", str(inp), "-filter_complex", af,
                "-map", "[aout]"]
         if video:
-            cmd += ["-map", "0:v"] + video_args(inp)
+            cmd += ["-map", "0:v", "-c:v", "copy"]
         cmd += ["-c:a", "aac", str(out)]
         run(cmd)
     elif mode == "cut":
