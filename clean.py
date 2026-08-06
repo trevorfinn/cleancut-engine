@@ -203,6 +203,7 @@ def detect(audio_path: Path, tier: int = 1):
         # union substantially more reliable for repeated words over music.
         word_passes = [
             transcribe_groq(audio_path, key, model="whisper-large-v3"),
+            transcribe_groq(audio_path, key, model="whisper-large-v3-turbo"),
             transcribe_groq_chunked(
                 audio_path, key, model="whisper-large-v3-turbo"),
         ]
