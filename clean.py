@@ -173,7 +173,16 @@ def has_video(path: Path) -> bool:
     r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v",
                         "-show_entries", "stream=codec_type", "-of", "csv=p=0",
                         str(path)], capture_output=True, text=True)
-    return "video" in r.stdout
+    return r.returncode == 0 and "video" in r.stdout
+
+
+def has_audio(path: Path) -> bool:
+    """Return True when ffprobe finds at least one audio stream."""
+    r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a",
+                        "-show_entries", "stream=codec_type", "-of", "csv=p=0",
+                        str(path)], capture_output=True, text=True)
+    return r.returncode == 0 and "audio" in r.stdout
+
 
 def enable_expr(spans):
     return "+".join(f"between(t,{s:.3f},{e:.3f})" for s, e in spans)
