@@ -66,6 +66,11 @@ def process(job_id: str, inp: Optional[Path], mode: str, tier: int,
             inp = fetch_url(url, JOBS_DIR / job_id)
             job["name"] = inp.name
         job["status"] = "extracting audio"
+        if not pipeline.has_audio(inp):
+            raise RuntimeError(
+                "This link did not provide an audio track. "
+                "Try uploading the saved video instead."
+            )
         wav = inp.with_suffix(".wav")
         pipeline.run(["ffmpeg", "-y", "-i", str(inp), "-ac", "1", "-ar",
                       "16000", str(wav)])
