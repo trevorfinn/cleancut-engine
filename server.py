@@ -45,16 +45,31 @@ def fetch_url(url: str, jdir: Path) -> Path:
     m = re.search(r"drive\.google\.com/file/d/([\w-]+)", url)
     if m:
         url = f"https://drive.google.com/uc?export=download&id={m.group(1)}"
-    r = subprocess.run(
-        ["yt-dlp", "--no-playlist", "-f", "bv*+ba/b",
-         "--merge-output-format", "mp4", "--max-filesize", "500M",
-         "-o", str(jdir / "input.%(ext)s"), url],
-        capture_output=True, text=True, timeout=600)
+    cmd = ["yt-dlp", "--no-playlist", "-f", "bv*+ba/b",
+           "--merge-output-format", "mp4", "--max-filesize", "500M",
+           "-o", str(jdir / "input.%(ext)s")]
+    is_youtube = bool(re.search(r"(?:youtube\.com|youtu\.be)", url, re.I))
+    if is_youtube:
+        cmd += [
+            "--extractor-args", "youtube:player_client=mweb",
+            "--extractor-args",
+            ("youtubepot-bgutilscript:"
+             "server_home=/opt/bgutil-ytdlp-pot-provider/server"),
+            "--js-runtimes", "node:/usr/local/bin/node",
+        ]
+    cmd.append(url)
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
     files = [p for p in jdir.iterdir() if p.stem == "input"]
     if r.returncode != 0 or not files:
+        stderr = r.stderr.strip()
+        if is_youtube and ("confirm you're not a bot" in stderr.lower()
+                           or "sign in" in stderr.lower()):
+            raise RuntimeError(
+                "YouTube blocked the server download. "
+                "Try another public video or upload a saved file.")
         raise RuntimeError("couldn't download that link"
-                           + (f" ({r.stderr.strip().splitlines()[-1]})"
-                              if r.stderr.strip() else ""))
+                           + (f" ({stderr.splitlines()[-1]})"
+                              if stderr else ""))
     return files[0]
 
 
