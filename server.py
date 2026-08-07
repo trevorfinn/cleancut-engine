@@ -49,14 +49,6 @@ def fetch_url(url: str, jdir: Path) -> Path:
            "--merge-output-format", "mp4", "--max-filesize", "500M",
            "-o", str(jdir / "input.%(ext)s")]
     is_youtube = bool(re.search(r"(?:youtube\.com|youtu\.be)", url, re.I))
-    if is_youtube:
-        cmd += [
-            "--extractor-args", "youtube:player_client=mweb",
-            "--extractor-args",
-            ("youtubepot-bgutilscript:"
-             "server_home=/opt/bgutil-ytdlp-pot-provider/server"),
-            "--js-runtimes", "node:/usr/local/bin/node",
-        ]
     cmd.append(url)
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
     files = [p for p in jdir.iterdir() if p.stem == "input"]
